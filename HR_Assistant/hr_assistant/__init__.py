@@ -4,29 +4,17 @@ from document_processor import DocumentProcessor
 from database import Database
 from config import Config
 from utils import LLMHelper
-from dotenv import load_dotenv
 
-
-load_dotenv(override=True)
-
-# Process documents
-documents, metadatas, ids = DocumentProcessor.process_documents()
-
-# print("*" * 80)
-# print("Chucks, metadata e ids")
-# print("*" * 80)
-# print(documents, metadatas, ids)
-
-# Initialize database and add documents
 db = Database()
-db.add_documents(documents, metadatas, ids)
 
-# E' ancora inefficiente
-# perche' ricarica sempre tutto nel DB 
+# Process documents syncing folder to db
+added, updated, removed = DocumentProcessor.process_documents(db)
+print(f"Document sync complete: {added} added, {updated} updated, {removed} removed")
 
 
 @cl.on_chat_start
-def start():
+async def start():
+
     cl.user_session.set(
         "messages",
         [
@@ -46,25 +34,16 @@ async def handle_message(message: cl.Message):
     user_question = message.content
     results = db.query(user_question)
 
-    filename = results["metadatas"][0][0]["source"]
-    context_lines = DocumentProcessor.read_first_lines(
-        os.path.join(Config.DOCUMENTS_DIR, filename), 10
-    )
+    metadata = results["metadatas"][0][0]
+    filename = metadata["source"]
+    candidate_name = metadata["candidate_name"]
 
-    context = f"CONTESTO: nome file {results['metadatas'][0][0]['source']} ecco il paragrafo piu' significativo: {results['documents'][0][0]}"
-
-    candidate_name = await LLMHelper.get_candidate_name(context_lines)
+    context = f"CONTESTO: nome file {filename} ecco il paragrafo piu' significativo: {results['documents'][0][0]}"
 
     prompt = LLMHelper.create_prompt(context, user_question, candidate_name)
 
     messages = cl.user_session.get("messages", [])
     messages.append({"role": "user", "content": prompt})
-
-    # print("*" * 80)
-    # print("*" * 80)
-    # print("prompt", prompt)
-    # print("*" * 80)
-    # print("*" * 80)
 
     response_message = cl.Message(content="")
     await response_message.send()
@@ -73,7 +52,9 @@ async def handle_message(message: cl.Message):
         stream = LLMHelper.chat(messages)
 
         for chunk in stream:
-            await response_message.stream_token(str(chunk.choices[0].delta.content))
+            await response_message.stream_token(
+                str(chunk.choices[0].delta.content or "")
+            )
 
         messages.append({"role": "assistant", "content": response_message.content})
         await response_message.update()

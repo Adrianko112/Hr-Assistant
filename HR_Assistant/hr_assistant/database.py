@@ -11,7 +11,8 @@ class Database:
         )
 
         # Initialize persistent client
-        self.client = chromadb.PersistentClient(path=Config.PERSISTENT_DIR)
+        self.client = chromadb.PersistentClient(path=Config.PERSISTENT_DIR) #news
+        
         self.collection = self.client.get_or_create_collection(
             name=Config.COLLECTION_NAME, embedding_function=self.openai_ef
         )
@@ -21,3 +22,26 @@ class Database:
 
     def query(self, query_text, n_results=1):
         return self.collection.query(query_texts=[query_text], n_results=n_results)
+
+    def get_tracked_files(self):
+        """Get all unique files and their metadata from the database"""
+        result = self.collection.get()
+        tracked_files = {}
+
+        if result and result["metadatas"]:
+            for metadata in result["metadatas"]:
+                source = metadata.get("source")
+                if source and source not in tracked_files:
+                    tracked_files[source] = {
+                        "hash": metadata.get("hash", ""),
+                        "last_modified": metadata.get("last_modified", 0),
+                        "source": source,
+                    }
+
+        return tracked_files
+
+    def remove_document_by_source(self, source):
+        """Remove all entries for a specific source file"""
+        result = self.collection.get(where={"source": source})
+        if result and result["ids"]:
+            self.collection.delete(ids=result["ids"])
