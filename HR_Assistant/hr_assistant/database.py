@@ -1,19 +1,19 @@
-# database.py
 import chromadb
-from chromadb.utils import embedding_functions
 from config import Config
-
+from custom_embedding import CustomEmbeddingFunction
 
 class Database:
     def __init__(self):
-        self.openai_ef = embedding_functions.OpenAIEmbeddingFunction(
-            api_key=Config.OPENAI_KEY, model_name=Config.MODEL_NAME
-        )
-
-        # Initialize persistent client
+        # Inizializza la funzione di embedding personalizzata
+        self.local_ef = CustomEmbeddingFunction()
+        
+        # Inizializza il client persistente di ChromaDB
         self.client = chromadb.PersistentClient(path=Config.PERSISTENT_DIR)
+
+        # ✅ Ora ChromaDB accetta correttamente la funzione di embedding
         self.collection = self.client.get_or_create_collection(
-            name=Config.COLLECTION_NAME, embedding_function=self.openai_ef # TIP: forzare la distanza tra 0 e 1,metadata={"hnsw:space": "cosine"}
+            name=Config.COLLECTION_NAME,
+            embedding_function=self.local_ef  # ✅ Funziona perché è un oggetto con __call__()
         )
 
     def add_documents(self, documents, metadatas, ids):
@@ -46,11 +46,15 @@ class Database:
 
     def get_stats(self):
         result = self.collection.get()
-        valori_distinti = set(d["source"] for d in result["metadatas"]) # TIP: eliminazione dei duplicati!
+        valori_distinti = set(d["source"] for d in result["metadatas"])
         numero_files = len(valori_distinti)
-        
+
+        stats = {
+            "numero_totale_documenti": self.collection.count(),
+            "nome_collezione": self.collection.name,
+        }
         return f"""
-            Nome Collezione: { self.collection.name}
-            Numero totale Frammenti: {  self.collection.count() }
+            Nome Collezione: {stats['nome_collezione']} 
+            Numero totale Frammenti: {stats['numero_totale_documenti']}
             Numero Files Elaborati: {numero_files}
         """

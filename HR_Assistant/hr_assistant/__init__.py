@@ -14,7 +14,9 @@ print(f"Document sync complete: {added} added, {updated} updated, {removed} remo
 
 @cl.action_callback("db_stats")
 async def on_action(action: cl.Action):
+    print(action.payload)
     db_info = db.get_stats()
+    print(db_info)
     response = await LLMHelper.get_db_stats(db_info)
     await cl.Message(response).send()
 
@@ -26,33 +28,21 @@ async def on_action(action: cl.Action):
     await cl.Message(message).send()
 
 
-@cl.action_callback("about_me")
-async def on_action(action: cl.Action):
-    await cl.Message("Sono un'IA creata da Adriano.").send()
-
-
-
 @cl.on_chat_start
 async def start():
 
     actions = [
         cl.Action(
             name="db_stats",
-            icon="info",
+            icon="mouse-pointer-click",
             payload={"value": "db_stats"},
             label="Statistiche Database",
         ),
         cl.Action(
             name="db_reindex",
-            icon="sparkles",
+            icon="mouse-pointer-click",
             payload={"value": "db_reindex"},
             label="Reindex Database",
-        ),
-        cl.Action(
-            name="about_me",
-            icon="bot",
-            payload={"value": "about_me"},
-            label="Chi sei?",
         ),
     ]
 
@@ -71,23 +61,30 @@ async def start():
         ],
     )
 
-
 @cl.on_message
 async def handle_message(message: cl.Message):
     user_question = message.content
-    results = db.query(user_question,3)
-    print("RESULT DB: ",results)
+    results = db.query(user_question)
+
     filename = results["metadatas"][0][0]["source"]
-    candidate_info = DocumentProcessor.read_first_lines(
-        os.path.join(Config.DOCUMENTS_DIR, filename), 10
+    context_lines = DocumentProcessor.read_first_lines(
+        os.path.join(Config.DOCUMENTS_DIR, filename), 200
     )
 
-    context = f"CONTESTO: nome file {results['metadatas'][0][0]['source']} ecco il paragrafo piu' significativo: {results['documents'][0][0]}, qui trovi le informazioni del candidato: {candidate_info}"
+    context = f"CONTESTO: nome file {results['metadatas'][0][0]['source']} ecco il paragrafo piu' significativo: {results['documents'][0][0]}"
 
-    prompt = LLMHelper.create_prompt(context, user_question)
+    candidate_name = await LLMHelper.get_candidate_name(context_lines)
+
+    prompt = LLMHelper.create_prompt(context, user_question, candidate_name)
 
     messages = cl.user_session.get("messages", [])
     messages.append({"role": "user", "content": prompt})
+
+    # print("*" * 80)
+    # print("*" * 80)
+    # print("prompt", prompt)
+    # print("*" * 80)
+    # print("*" * 80)
 
     response_message = cl.Message(content="")
     await response_message.send()
