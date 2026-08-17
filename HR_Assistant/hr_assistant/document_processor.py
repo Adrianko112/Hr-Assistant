@@ -1,10 +1,9 @@
+# document_processor.py
 import os
 import uuid
 import hashlib
 from datetime import datetime
 from config import Config
-from utils import LLMHelper
-import asyncio
 
 
 class DocumentProcessor:
@@ -43,12 +42,6 @@ class DocumentProcessor:
             chunks = file.read().replace("\n", ".").split("### ")
             file_metadata = DocumentProcessor.get_document_metadata(file_path)
 
-            # Calcoliamo il nome del candidato UNA volta per file (non ad ogni domanda in chat)
-            first_lines = DocumentProcessor.read_first_lines(file_path, 200)
-            file_metadata["candidate_name"] = asyncio.run(
-                LLMHelper.get_candidate_name(first_lines)
-            )
-
             for chunk in chunks:
                 if not chunk.isspace() and not chunk == "":
                     documents.append(chunk)
@@ -65,27 +58,22 @@ class DocumentProcessor:
             f: DocumentProcessor.get_document_metadata(
                 os.path.join(Config.DOCUMENTS_DIR, f)
             )
-            for f in os.listdir(Config.DOCUMENTS_DIR) if f.endswith(".txt")
+            for f in os.listdir(Config.DOCUMENTS_DIR)
+            if f.endswith(".txt")
         }
-        print("Current files in directory:", current_files)
 
         # Get existing files from database
         existing_files = db.get_tracked_files()
-        print("Existing files in db:", existing_files)
 
         # Identify files to add, update, and remove
         files_to_add = set(current_files.keys()) - set(existing_files.keys())
-        print("Files to add:", files_to_add)
-
         files_to_remove = set(existing_files.keys()) - set(current_files.keys())
-        print("Files to remove:", files_to_remove)
 
         files_to_update = {
             f
             for f in set(current_files.keys()) & set(existing_files.keys())
             if current_files[f]["hash"] != existing_files[f]["hash"]
         }
-        print("Files to update:", files_to_update)
 
         # Process updates
         for action, files in [("add", files_to_add), ("update", files_to_update)]:
@@ -101,7 +89,6 @@ class DocumentProcessor:
 
                 # Add new entries
                 if documents:
-                    # Add documents to database
                     db.add_documents(documents, metadatas, ids)
 
         # Remove deleted files from database

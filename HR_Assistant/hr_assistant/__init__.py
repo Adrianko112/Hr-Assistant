@@ -7,13 +7,56 @@ from utils import LLMHelper
 
 db = Database()
 
-# Process documents syncing folder to db
+# Process documents
 added, updated, removed = DocumentProcessor.process_documents(db)
 print(f"Document sync complete: {added} added, {updated} updated, {removed} removed")
 
 
+@cl.action_callback("db_stats")
+async def on_action(action: cl.Action):
+    db_info = db.get_stats()
+    response = await LLMHelper.get_db_stats(db_info)
+    await cl.Message(response).send()
+
+
+@cl.action_callback("db_reindex")
+async def on_action(action: cl.Action):
+    added, updated, removed = DocumentProcessor.process_documents(db)
+    message = f"DB reindicizzato con successo. Document sync complete: {added} added, {updated} updated, {removed} removed"
+    await cl.Message(message).send()
+
+
+@cl.action_callback("about_me")
+async def on_action(action: cl.Action):
+    await cl.Message("Sono un'IA creata da Adriano.").send()
+
+
+
 @cl.on_chat_start
 async def start():
+
+    actions = [
+        cl.Action(
+            name="db_stats",
+            icon="info",
+            payload={"value": "db_stats"},
+            label="Statistiche Database",
+        ),
+        cl.Action(
+            name="db_reindex",
+            icon="sparkles",
+            payload={"value": "db_reindex"},
+            label="Reindex Database",
+        ),
+        cl.Action(
+            name="about_me",
+            icon="bot",
+            payload={"value": "about_me"},
+            label="Chi sei?",
+        ),
+    ]
+
+    await cl.Message(content="Informazioni del sistema:", actions=actions).send()
 
     cl.user_session.set(
         "messages",
@@ -32,15 +75,16 @@ async def start():
 @cl.on_message
 async def handle_message(message: cl.Message):
     user_question = message.content
-    results = db.query(user_question)
+    results = db.query(user_question,3)
+    print("RESULT DB: ",results)
+    filename = results["metadatas"][0][0]["source"]
+    candidate_info = DocumentProcessor.read_first_lines(
+        os.path.join(Config.DOCUMENTS_DIR, filename), 10
+    )
 
-    metadata = results["metadatas"][0][0]
-    filename = metadata["source"]
-    candidate_name = metadata["candidate_name"]
+    context = f"CONTESTO: nome file {results['metadatas'][0][0]['source']} ecco il paragrafo piu' significativo: {results['documents'][0][0]}, qui trovi le informazioni del candidato: {candidate_info}"
 
-    context = f"CONTESTO: nome file {filename} ecco il paragrafo piu' significativo: {results['documents'][0][0]}"
-
-    prompt = LLMHelper.create_prompt(context, user_question, candidate_name)
+    prompt = LLMHelper.create_prompt(context, user_question)
 
     messages = cl.user_session.get("messages", [])
     messages.append({"role": "user", "content": prompt})
